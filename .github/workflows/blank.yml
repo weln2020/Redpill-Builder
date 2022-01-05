@@ -1,0 +1,67 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the workflow will run
+on:  
+  watch:
+     types: [started]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest   
+
+    if: github.event.repository.owner.id == github.event.sender.id  # 自己点的 start
+    
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+
+      # Runs a single command using the runners shell
+      - name: Run a one-line script
+        run: echo Hello, world!
+
+      # Runs a set of commands using the runners shell
+      - name: Run a multi-line script
+        run: |
+          # 安装依赖
+          apt-get update && apt-get install --yes --no-install-recommends ca-certificates build-essential git libssl-dev curl cpio bspatch vim gettext bc bison flex dosfstools kmod jq
+
+          # 新建目录 并 清除编译残留文件
+          cd /root && rm -rf dsm && mkdir dsm && cd ./dsm
+
+          # 下载 redpill
+          git clone https://github.com/RedPill-TTG/redpill-lkm.git
+          git clone https://github.com/RedPill-TTG/redpill-load.git
+
+          # 下载群晖 toolkit
+          curl --location "https://sourceforge.net/projects/dsgpl/files/toolkit/DSM7.0/ds.apollolake-7.0.dev.txz/download" --output ds.apollolake-7.0.dev.txz
+
+          mkdir apollolake
+          tar -C./apollolake/ -xf ds.apollolake-7.0.dev.txz usr/local/x86_64-pc-linux-gnu/x86_64-pc-linux-gnu/sys-root/usr/lib/modules/DSM-7.0/build
+
+          # 编译 redpill-lkm
+          cd redpill-lkm
+          make LINUX_SRC=../apollolake/usr/local/x86_64-pc-linux-gnu/x86_64-pc-linux-gnu/sys-root/usr/lib/modules/DSM-7.0/build
+          read -a KVERS <<< "$(modinfo --field=vermagic redpill.ko)" && cp -fv redpill.ko ../redpill-load/ext/rp-lkm/redpill-linux-v${KVERS[0]}.ko || exit 1
+          cd ..
+
+          # 编译 redpill-load
+          cd redpill-load
+          curl --location "https://raw.githubusercontent.com/hopolcn/redpill-build/master/user_config.DS918+.json" --output user_config.json
+          ./build-loader.sh 'DS918+' '7.0-41890'
+          cd images && ls          
+
+      - name: Commit #提交变更仓库
+        run: |
+          git config --global user.email admin@lpyedge.com
+          git config --global user.name lpyedge
+          git add /root/dsm/redpill-load/images/
+          git commit -m "images update" -a
